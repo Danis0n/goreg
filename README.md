@@ -1,0 +1,2 @@
+# serviceregistrator
+Edu purpose only
