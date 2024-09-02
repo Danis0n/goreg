@@ -1,2 +1,2 @@
-# serviceregistrator
+# goreg
 Edu purpose only
