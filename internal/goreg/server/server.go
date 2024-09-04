@@ -77,6 +77,7 @@ func (g *Server) startServer(port int) error {
 	http.HandleFunc("/getall", g.GetAllHandler)
 	http.HandleFunc("/get", g.GetHandler)
 
+	g.logger.Info("Server was started at port: " + strconv.Itoa(port))
 	return http.ListenAndServe(":"+strconv.Itoa(port), nil)
 }
 

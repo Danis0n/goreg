@@ -21,6 +21,14 @@ func NewGoregServerWithStart(cfg server.ServerConfig) (*server.Server, error) {
 	return server.NewServerWithStart(cfg)
 }
 
-func NewGoregClientConfig() {
+func NewGoregClientConfig(registrator, callback, name string, port int) (client.ClientConfig, error) {
+	return client.NewClientConfigWithName(registrator, callback, port, name)
+}
 
+func NewGoregClientConfigWithDefaults(registrator, callback string, port int) (client.ClientConfig, error) {
+	return client.NewClientConfigWithDefaults(registrator, callback, port)
+}
+
+func NewGoregServerConfig(port int) (server.ServerConfig, error) {
+	return server.NewServerConfig(port)
 }
