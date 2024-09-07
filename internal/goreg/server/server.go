@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
+	"github.com/Danis0n/goreg/internal/goreg/httpprovider"
 	"go.uber.org/zap"
 )
 
@@ -16,6 +18,7 @@ type Server struct {
 	closeCh     chan struct{}
 	closeDoneCh chan struct{}
 	port        int
+	httpClient  httpprovider.HttpClient
 }
 
 func NewServer(cfg ServerConfig) (*Server, error) {
@@ -66,6 +69,8 @@ func (g *Server) Start() {
 				return
 			case err := <-g.errch:
 				g.logger.Error(err.Error())
+			case <-time.After(time.Minute):
+				g.checkServicesAvailability()
 			}
 		}
 	}()
@@ -81,8 +86,35 @@ func (g *Server) startServer(port int) error {
 	return http.ListenAndServe(":"+strconv.Itoa(port), nil)
 }
 
+func (g *Server) checkServicesAvailability() {
+	for _, service := range g.store.services {
+		go func() {
+			g.logger.Info("goreg->[server]: check service availability: " + service.Name)
+			g.checkServiceAvailability(*service)
+		}()
+	}
+}
+
+func (g *Server) checkServiceAvailability(service Service) {
+	url := service.Callback + "?hash= " + service.Hash
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		g.logger.Error("goreg->[client]: request create error")
+		g.errch <- err
+		return
+	}
+
+	_, err = httpprovider.Request(req, g.httpClient)
+	if err != nil {
+		g.logger.Error("goreg->[client]: request send error")
+		g.errch <- err
+		return
+	}
+}
+
 func (g *Server) GetHandler(w http.ResponseWriter, r *http.Request) {
-	if err := validateHttpMethod(r.Method, http.MethodGet); err != nil {
+	if err := ValidateHttpMethod(r.Method, http.MethodGet); err != nil {
 		http.Error(w, err.Error(), http.StatusMethodNotAllowed)
 		return
 	}
@@ -104,7 +136,7 @@ func (g *Server) GetHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Server) SetHandler(w http.ResponseWriter, r *http.Request) {
-	if err := validateHttpMethod(r.Method, http.MethodPost); err != nil {
+	if err := ValidateHttpMethod(r.Method, http.MethodPost); err != nil {
 		http.Error(w, err.Error(), http.StatusMethodNotAllowed)
 		return
 	}
@@ -132,7 +164,7 @@ func (g *Server) SetHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Server) GetAllHandler(w http.ResponseWriter, r *http.Request) {
-	if err := validateHttpMethod(r.Method, http.MethodGet); err != nil {
+	if err := ValidateHttpMethod(r.Method, http.MethodGet); err != nil {
 		http.Error(w, err.Error(), http.StatusMethodNotAllowed)
 		return
 	}
@@ -143,7 +175,7 @@ func (g *Server) GetAllHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Server) DeleteHandler(w http.ResponseWriter, r *http.Request) {
-	if err := validateHttpMethod(r.Method, http.MethodDelete); err != nil {
+	if err := ValidateHttpMethod(r.Method, http.MethodDelete); err != nil {
 		http.Error(w, err.Error(), http.StatusMethodNotAllowed)
 		return
 	}
@@ -162,7 +194,7 @@ func (g *Server) DeleteHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func validateHttpMethod(method string, requiredMethod string) error {
+func ValidateHttpMethod(method string, requiredMethod string) error {
 	if method != requiredMethod {
 		return errors.New("method not allowed")
 	}

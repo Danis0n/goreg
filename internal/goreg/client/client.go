@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/Danis0n/goreg/internal/goreg/httpprovider"
+	"github.com/Danis0n/goreg/internal/goreg/server"
 	"go.uber.org/zap"
 )
 
@@ -38,6 +39,7 @@ type RegisterResponse struct {
 
 const (
 	maxRetries = 5
+	callback   = "/callback"
 )
 
 func NewClient(cfg ClientConfig) (*Client, error) {
@@ -75,6 +77,7 @@ func NewClientWithStart(cfg ClientConfig) (*Client, error) {
 func (c *Client) Start() {
 	defer close(c.closeDoneCh)
 
+	c.StartListener(callback)
 	c.doRegister()
 
 	go func() {
@@ -94,6 +97,27 @@ func (c *Client) Stutdown() {
 	c.doUnregister()
 	close(c.closeCh)
 	<-c.closeDoneCh
+}
+
+func (c *Client) StartListener(callback string) {
+	http.HandleFunc(callback, func(w http.ResponseWriter, r *http.Request) {
+		if err := server.ValidateHttpMethod(r.Method, http.MethodGet); err != nil {
+			http.Error(w, err.Error(), http.StatusMethodNotAllowed)
+			return
+		}
+
+		hash := r.URL.Query().Get("hash")
+		if hash == "" {
+			http.Error(w, "hash is required", http.StatusBadRequest)
+			return
+		}
+
+		if err := c.Hash(hash); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
 }
 
 func (c *Client) Hash(hash string) error {
@@ -124,7 +148,7 @@ func (g *Client) doRegister() {
 		return
 	}
 
-	req, err := http.NewRequest("POST", g.registrator, reqBytes)
+	req, err := http.NewRequest(http.MethodPost, g.registrator, reqBytes)
 	if err != nil {
 		g.logger.Error("goreg->[client]: request create error")
 		g.errch <- err
@@ -132,7 +156,7 @@ func (g *Client) doRegister() {
 	}
 
 	for i := 0; i < maxRetries; i++ {
-		data, err := g.request(req)
+		data, err := httpprovider.Request(req, g.httpClient)
 		if err != nil {
 			g.logger.Error("goreg->[client]: request error")
 			time.Sleep(time.Second)
@@ -155,10 +179,9 @@ func (g *Client) doRegister() {
 }
 
 func (g *Client) doUnregister() {
-	req, err := http.NewRequest(
-		"DELETE",
-		g.registrator+"&name="+g.store.Name+strconv.Itoa(g.store.Port),
-		nil)
+	url := g.registrator + "&name=" + g.store.Name + strconv.Itoa(g.store.Port)
+
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		g.logger.Error("goreg->[client]: request create error")
 		g.errch <- err
@@ -166,7 +189,7 @@ func (g *Client) doUnregister() {
 	}
 
 	for i := 0; i < maxRetries; i++ {
-		_, err := g.request(req)
+		_, err := httpprovider.Request(req, g.httpClient)
 		if err != nil {
 			g.logger.Error("goreg->[client]: request error")
 			time.Sleep(time.Second)
@@ -178,23 +201,4 @@ func (g *Client) doUnregister() {
 	}
 
 	g.logger.Error("goreg->[client]: unregistration failed after max retries")
-}
-
-func (c *Client) request(req *http.Request) ([]byte, error) {
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		return nil, errors.New("goreg: bad status code: " + res.Status)
-	}
-
-	bodyBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return bodyBytes, nil
 }

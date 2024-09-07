@@ -24,7 +24,7 @@ func NewClientStore(cfg ClientConfig) (*ClientStore, error) {
 
 	return &ClientStore{
 		logger:   logger,
-		Callback: cfg.Callback,
+		Callback: cfg.Callback + callback,
 		Name:     cfg.Name,
 		Port:     cfg.Port,
 		Hash:     "",
